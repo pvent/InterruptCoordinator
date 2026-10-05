@@ -2,7 +2,7 @@
 ## Title: Interrupt Coordinator
 ## Notes: Shared interrupt cooldown reporting for parties and raids.
 ## Author: Clanker
-## Version: 1.0.0
+## Version: 1.0.3
 ## SavedVariables: InterruptCoordinatorDB
 
 InterruptCoordinator.lua

@@ -1,8 +1,9 @@
 local PREFIX = "IC"
-local ADDON_VERSION = "1.0.0"
+local ADDON_VERSION = "1.0.3"
 local HEARTBEAT_SECONDS = 20
 local STALE_SECONDS = 45
 local VERSION_CHECK_SECONDS = 5
+local MAX_GLOBAL_COOLDOWN_DURATION = 2.5
 
 local interruptCatalog = {
     { class = "WARRIOR", ids = { 72, 1671, 1672, 29704 }, cooldown = 12, sharedCooldownGroup = "warriorShieldBashPummel" },
@@ -16,10 +17,11 @@ local interruptCatalog = {
 }
 
 local secondaryCatalog = {
-    { class = "WARRIOR", ids = { 20252, 20616, 20617, 25272, 25273, 25274 }, cooldown = 30 },
+    { class = "WARRIOR", ids = { 100, 6178, 11578 }, cooldown = 15 },
+    { class = "WARRIOR", ids = { 20252, 20616, 20617, 25272 }, cooldown = 30 },
     { class = "WARRIOR", ids = { 676 }, cooldown = 60 },
     { class = "WARRIOR", ids = { 12809 }, cooldown = 45 },
-    { class = "WARRIOR", ids = { 5246, 6190, 11578 }, cooldown = 180 },
+    { class = "WARRIOR", ids = { 5246 }, cooldown = 180 },
     { race = "TAUREN", ids = { 20549 }, cooldown = 120 },
     { class = "PALADIN", ids = { 853, 5588, 5589, 10308 }, cooldown = 60 },
     { class = "PALADIN", ids = { 20066 }, cooldown = 60 },
@@ -27,13 +29,11 @@ local secondaryCatalog = {
     { class = "HUNTER", ids = { 1499, 14310, 14311 }, cooldown = 30 },
     { class = "ROGUE", ids = { 408, 8643 }, cooldown = 20 },
     { class = "ROGUE", ids = { 1776, 1777, 8629, 11285, 11286 }, cooldown = 10 },
-    { class = "ROGUE", ids = { 6770, 2070, 11297 }, cooldown = 10 },
     { class = "ROGUE", ids = { 2094 }, cooldown = 180 },
     { class = "PRIEST", ids = { 8122, 8124, 10888, 10890 }, cooldown = 30 },
     { class = "MAGE", ids = { 31661, 33041, 33042 }, cooldown = 20 },
     { class = "WARLOCK", ids = { 6789, 17925, 17926, 27223 }, cooldown = 120 },
     { class = "WARLOCK", ids = { 30283, 30413, 30414 }, cooldown = 20 },
-    { class = "WARLOCK", ids = { 710, 18647 }, cooldown = 30 },
     { class = "DRUID", ids = { 5211, 6798, 8983 }, cooldown = 60 },
     { class = "DRUID", ids = { 22570 }, cooldown = 10 },
 }
@@ -290,7 +290,13 @@ local function getCooldown(spellId, isPet)
     if not startTime or not duration then
         return 0
     end
-    return math.max(0, startTime + duration - GetTime())
+
+    if duration > 0 and duration <= MAX_GLOBAL_COOLDOWN_DURATION then
+        return 0
+    end
+
+    local remaining = math.max(0, startTime + duration - GetTime())
+    return remaining
 end
 
 local function collectLocalAbilities()
@@ -318,6 +324,25 @@ local function collectLocalAbilities()
     return abilities
 end
 
+local function clearEstimatesForReportedAbilities(memberKey, abilities)
+    local reportedCatalogEntries = {}
+    for _, ability in ipairs(abilities) do
+        local catalogEntry = catalogById[ability.id]
+        if catalogEntry then
+            reportedCatalogEntries[catalogEntry] = true
+        end
+    end
+
+    local estimates = combatEstimates[memberKey]
+    if estimates then
+        for spellId in pairs(estimates) do
+            if reportedCatalogEntries[catalogById[spellId]] then
+                estimates[spellId] = nil
+            end
+        end
+    end
+end
+
 local function formatRemaining(seconds)
     if seconds <= 0 then
         return "CD ready"
@@ -329,6 +354,7 @@ local function publishLocalStatus()
     localAbilities = collectLocalAbilities()
     localKey = nameKey(getFullName("player"))
     local dead = UnitIsDeadOrGhost("player")
+    clearEstimatesForReportedAbilities(localKey, localAbilities)
     reports[localKey] = {
         abilities = localAbilities,
         dead = dead,
@@ -378,7 +404,9 @@ local function receiveStatus(sender, payload)
     end
     synchronizeSharedCooldowns(abilities)
 
-    reports[nameKey(sender)] = {
+    local memberKey = nameKey(sender)
+    clearEstimatesForReportedAbilities(memberKey, abilities)
+    reports[memberKey] = {
         abilities = abilities,
         dead = deadFlag == "1",
         receivedAt = GetTime(),
@@ -459,6 +487,18 @@ local function checkGroupVersions()
     sendMessage("VQ")
 end
 
+local function reportHasCatalogEntry(report, catalogEntry)
+    if not report then
+        return false
+    end
+    for _, ability in ipairs(report.abilities) do
+        if catalogById[ability.id] == catalogEntry then
+            return true
+        end
+    end
+    return false
+end
+
 local function recordEstimatedInterrupt(sourceName, spellId)
     local catalogEntry = catalogById[spellId]
     if not catalogEntry or not sourceName then
@@ -490,6 +530,10 @@ local function recordEstimatedInterrupt(sourceName, spellId)
         end
     end
     if not memberFound then
+        return false
+    end
+
+    if reportHasCatalogEntry(reports[memberKey], catalogEntry) then
         return false
     end
 
@@ -1921,7 +1965,7 @@ local function createConfigFrame()
         return
     end
     configFrame = CreateFrame("Frame", "InterruptCoordinatorConfigFrame", UIParent)
-    configFrame:SetSize(320, 680)
+    configFrame:SetSize(320, 700)
     configFrame:SetPoint("CENTER")
     configFrame:SetFrameStrata("DIALOG")
     configFrame:SetMovable(true)
@@ -2081,12 +2125,12 @@ local function createConfigFrame()
     addConfigOption("iconGap", "Icon spacing", -510, 0, 24, 2)
     addConfigOption("interruptGap", "Other interrupts spacing", -549, 0, 48, 4)
     local versionButton = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
-    versionButton:SetSize(136, 24)
-    versionButton:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 18, -610)
+    versionButton:SetSize(160, 24)
+    versionButton:SetPoint("TOPRIGHT", configFrame, "TOPRIGHT", -18, -622)
     versionButton:SetText("Check group versions")
     versionButton:SetScript("OnClick", checkGroupVersions)
     versionStatusText = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    versionStatusText:SetPoint("TOPLEFT", versionButton, "BOTTOMLEFT", 0, -5)
+    versionStatusText:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 18, -654)
     versionStatusText:SetWidth(284)
     versionStatusText:SetHeight(28)
     versionStatusText:SetJustifyH("LEFT")
@@ -2094,7 +2138,7 @@ local function createConfigFrame()
 
     visibilityButton = CreateFrame("Button", nil, configFrame, "UIPanelButtonTemplate")
     visibilityButton:SetSize(136, 24)
-    visibilityButton:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 18, -568)
+    visibilityButton:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 18, -590)
     visibilityButton:SetScript("OnClick", function()
         setBarVisible(not frame:IsShown())
     end)
@@ -2119,9 +2163,7 @@ local function createConfigFrame()
     end)
     blacklistButton:SetSize(136, 24)
     blacklistButton:ClearAllPoints()
-    blacklistButton:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 18, -600)
-    versionButton:ClearAllPoints()
-    versionButton:SetPoint("TOPLEFT", blacklistButton, "TOPRIGHT", 8, 0)
+    blacklistButton:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 18, -622)
 
     UISpecialFrames = UISpecialFrames or {}
     local registeredForEscape = false
