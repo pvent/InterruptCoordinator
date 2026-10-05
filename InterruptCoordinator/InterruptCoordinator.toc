@@ -1,0 +1,8 @@
+## Interface: 20503
+## Title: Interrupt Coordinator
+## Notes: Shared interrupt cooldown reporting for parties and raids.
+## Author: Clanker
+## Version: 1.0.0
+## SavedVariables: InterruptCoordinatorDB
+
+InterruptCoordinator.lua
