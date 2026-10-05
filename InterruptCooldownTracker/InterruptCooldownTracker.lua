@@ -1,5 +1,5 @@
 local ADDON_NAME = "InterruptCooldownTracker"
-local ADDON_VERSION = "1.2.1"
+local ADDON_VERSION = "1.2.2"
 
 local interruptCatalog = {
     { class = "WARRIOR", ids = { 72, 1671, 1672, 29704 }, cooldown = 12, sharedCooldownGroup = "warriorShieldBashPummel" },
@@ -382,26 +382,27 @@ local function collectEntries(now)
 end
 
 local function savePosition()
-    local _, _, _, x, y = bar:GetPoint(1)
-    db.x = x or 0
-    db.y = y or 0
+    local left = bar:GetLeft()
+    local bottom = bar:GetBottom()
+    if left and bottom then
+        local uiLeft, uiBottom = UIParent:GetLeft(), UIParent:GetBottom()
+        local scale = bar:GetEffectiveScale()
+        local uiScale = UIParent:GetEffectiveScale()
+        -- Convert absolute position into center offset coordinates relative to UIParent center
+        local centerX = left + (bar:GetWidth() / 2)
+        local centerY = bottom + (bar:GetHeight() / 2)
+        local uiCenterX = uiLeft + (UIParent:GetWidth() / 2)
+        local uiCenterY = uiBottom + (UIParent:GetHeight() / 2)
+        
+        db.x = (centerX - uiCenterX) * (scale / uiScale)
+        db.y = (centerY - uiCenterY) * (scale / uiScale)
+    end
     for key, positionValue in pairs(positionValues) do
-        positionValue:SetText(tostring(db[key]))
+        positionValue:SetText(tostring(math.floor((db[key] or 0) + 0.5)))
         if positionSliders[key] then
             positionSliders[key]:SetValue(db[key])
         end
     end
-end
-
-local function beginMove()
-    if IsShiftKeyDown and IsShiftKeyDown() then
-        bar:StartMoving()
-    end
-end
-
-local function endMove()
-    bar:StopMovingOrSizing()
-    savePosition()
 end
 
 local function makeButton()
@@ -418,9 +419,6 @@ local function makeButton()
     button.memberText:SetPoint("TOP", button, "BOTTOM", 0, -2)
     button.memberText:SetWidth(cellWidth)
     button.memberText:SetJustifyH("CENTER")
-    button:RegisterForDrag("LeftButton")
-    button:SetScript("OnDragStart", beginMove)
-    button:SetScript("OnDragStop", endMove)
     button:SetScript("OnEnter", function(self)
         if not self.entry then
             return
@@ -590,10 +588,10 @@ local function makePositionControl(parent, titleText, key, y)
     value:SetJustifyH("CENTER")
     positionValues[key] = value
     local function refresh()
-        value:SetText(tostring(db[key]))
+        value:SetText(tostring(math.floor((db[key] or 0) + 0.5)))
     end
     local function apply(newValue)
-        db[key] = math.max(-1000, math.min(1000, math.floor(newValue + 0.5)))
+        db[key] = math.max(-1000, math.min(1000, newValue))
         bar:ClearAllPoints()
         bar:SetPoint("CENTER", UIParent, "CENTER", db.x, db.y)
         refresh()
@@ -627,7 +625,7 @@ local function makePositionControl(parent, titleText, key, y)
     end
     slider:SetValue(db[key])
     slider:SetScript("OnValueChanged", function(_, newValue)
-        apply(newValue)
+        apply(math.floor(newValue + 0.5))
     end)
     positionSliders[key] = slider
     refresh()
@@ -897,9 +895,40 @@ local function initialize()
     if bar.SetClampedToScreen then
         bar:SetClampedToScreen(true)
     end
-    bar:RegisterForDrag("LeftButton")
-    bar:SetScript("OnDragStart", beginMove)
-    bar:SetScript("OnDragStop", endMove)
+
+    -- Custom Mouse Delta Drag Handler to resolve frame-jumping on release
+    bar:SetScript("OnMouseDown", function(self, button)
+        if button == "LeftButton" and (not IsShiftKeyDown or IsShiftKeyDown()) then
+            local scale = self:GetEffectiveScale()
+            local cursorX, cursorY = GetCursorPosition()
+            
+            self.startX = cursorX / scale - self:GetLeft()
+            self.startY = cursorY / scale - self:GetBottom()
+            
+            self:SetScript("OnUpdate", function(f)
+                local cX, cY = GetCursorPosition()
+                local s = f:GetEffectiveScale()
+                
+                f:ClearAllPoints()
+                f:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", (cX / s) - f.startX, (cY / s) - f.startY)
+            end)
+        end
+    end)
+
+    bar:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" then
+            self:SetScript("OnUpdate", nil)
+            
+            local left = self:GetLeft()
+            local bottom = self:GetBottom()
+            if left and bottom then
+                self:ClearAllPoints()
+                self:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", math.floor(left + 0.5), math.floor(bottom + 0.5))
+                savePosition()
+            end
+        end
+    end)
+
     local background = bar:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints(bar)
     background:SetTexture("Interface\\Buttons\\WHITE8X8")

@@ -2,7 +2,7 @@
 ## Title: Interrupt Cooldown Tracker
 ## Notes: Local combat-log interrupt cooldown estimates.
 ## Author: Clanker
-## Version: 1.2.1
+## Version: 1.2.2
 ## SavedVariables: InterruptCooldownTrackerDB
 
 InterruptCooldownTracker.lua
