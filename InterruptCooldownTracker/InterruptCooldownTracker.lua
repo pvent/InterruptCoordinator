@@ -1,5 +1,5 @@
 local ADDON_NAME = "InterruptCooldownTracker"
-local ADDON_VERSION = "1.2.2"
+local ADDON_VERSION = "1.2.4"
 
 local interruptCatalog = {
     { class = "WARRIOR", ids = { 72, 1671, 1672, 29704 }, cooldown = 12, sharedCooldownGroup = "warriorShieldBashPummel" },
@@ -388,7 +388,6 @@ local function savePosition()
         local uiLeft, uiBottom = UIParent:GetLeft(), UIParent:GetBottom()
         local scale = bar:GetEffectiveScale()
         local uiScale = UIParent:GetEffectiveScale()
-        -- Convert absolute position into center offset coordinates relative to UIParent center
         local centerX = left + (bar:GetWidth() / 2)
         local centerY = bottom + (bar:GetHeight() / 2)
         local uiCenterX = uiLeft + (UIParent:GetWidth() / 2)
@@ -443,6 +442,7 @@ local function updateBar()
     if not bar then
         return
     end
+    -- Correct behavior for combat-only toggle: hide immediately if out of combat and combatOnly is enabled
     if not trackingEnabled or (db.combatOnly and not combatActive) then
         bar:Hide()
         return
@@ -501,7 +501,7 @@ local function updateBar()
         local _, _, texture = GetSpellInfo(entry.id)
         button.texture:SetTexture(texture or "Interface\\Icons\\INV_Misc_QuestionMark")
         if button.texture.SetDesaturated then
-            button.texture:SetDesaturated(false)
+            button.texture:SetDesaturated(entry.remaining > 0)
         end
         button.memberText:SetText(entry.member.name:match("^([^-]+)") or entry.member.name)
         local fontPath, _, fontFlags = GameFontNormalSmall:GetFont()
@@ -806,6 +806,7 @@ local function createConfig()
     local secondaryLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     secondaryLabel:SetPoint("LEFT", showSecondaryCheckbox, "RIGHT", 4, 0)
     secondaryLabel:SetText("Track secondary stops")
+
     hideEmptyCheckbox = CreateFrame("CheckButton", nil, configFrame, "UICheckButtonTemplate")
     hideEmptyCheckbox:SetPoint("TOPLEFT", configFrame, "TOPLEFT", 14, -452)
     hideEmptyCheckbox:SetSize(24, 24)
@@ -823,7 +824,7 @@ local function createConfig()
     combatOnlyCheckbox:SetSize(24, 24)
     combatOnlyCheckbox:SetChecked(db.combatOnly)
     combatOnlyCheckbox:SetScript("OnClick", function(self)
-        db.combatOnly = self:GetChecked() and true or false
+        db.combatOnly = self:GetChecked() and true or nil
         updateBar()
     end)
     local combatOnlyLabel = configFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -896,7 +897,6 @@ local function initialize()
         bar:SetClampedToScreen(true)
     end
 
-    -- Custom Mouse Delta Drag Handler to resolve frame-jumping on release
     bar:SetScript("OnMouseDown", function(self, button)
         if button == "LeftButton" and (not IsShiftKeyDown or IsShiftKeyDown()) then
             local scale = self:GetEffectiveScale()
